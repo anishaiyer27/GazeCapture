@@ -2,9 +2,12 @@ import cv2
 import numpy as np
 import scipy.io
 import sys
+import caffe
 
 """
     LOAD PRETRAINED MODEL AND RUN INFERENCE ON 1 PRELOADED IMAGE
+
+    version with caffe-- issues with installation, use no caffe version for now
 """
 global net
 
@@ -38,7 +41,7 @@ def batchify(img_left_blob, img_right_blob, img_face_blob, batch_size=256):
     img_left_batch = np.repeat(img_left_blob, batch_size, axis=0)  # Shape (256, 3, 224, 224)
     img_right_batch = np.repeat(img_right_blob, batch_size, axis=0)  # Shape (256, 3, 224, 224)
     img_face_batch = np.repeat(img_face_blob, batch_size, axis=0)  # Shape (256, 3, 224, 224)
-    facegrid_batch = facegrid_data  # Shape (256, 625, 1, 1)
+    facegrid_batch = np.repeat(facegrid_data, batch_size, axis=0)  # Shape (256, 625, 1, 1)
 
     return img_left_batch, img_right_batch, img_face_batch, facegrid_batch
 
@@ -46,7 +49,7 @@ def get_facegrid_data():
     # TODO: implement accurately
     #np.random.randn(256, 625, 1, 1).astype(np.float32)  # dummy data, adjust as needed
     # for one image
-    return np.zeros((256, 625, 1, 1)).astype(np.float32)
+    return np.zeros((625, 1, 1)).astype(np.float32)
 
 def get_means():
     # TODO: get means from mean_images
@@ -106,17 +109,24 @@ def test_faces(img, faces, face_features):
     return outputs
 
 def main():
+    caffe.set_mode_gpu()
 
-    # image loading and processing
-    img_left_blob, img_right_blob, img_face_blob = preprocess_img("anisha.png")
+    proto_path="models/itracker_deploy.prototxt"
+    caffe_path="models/snapshots/itracker25x_iter_92000.caffemodel"
+    net = caffe.Net(proto_path, caffe_path, caffe.TEST)
 
-    img_left_batch, img_right_batch, img_face_batch, facegrid_batch = batchify(img_left_blob, img_right_blob, img_face_blob)
+    def set_batch_size(batch_size):
+        net.blobs['image_left'].reshape(batch_size, 3, 224, 224)
+        net.blobs['image_right'].reshape(batch_size, 3, 224, 224)
+        net.blobs['image_face'].reshape(batch_size, 3, 224, 224)
+        net.blobs['facegrid'].reshape(batch_size, 625, 1, 1)   
 
-    print(img_left_batch.shape)     # should be (256, 3, 224, 224)
-    print(img_right_batch.shape)    # should be (256, 3, 224, 224)
-    print(img_face_batch.shape)     # should be (256, 3, 224, 224)
-    print(facegrid_batch.shape)     # should be (256, 625, 1, 1)
+    # set the batch size to 1
+    set_batch_size(1)
 
+    for layer_name, blob in net.blobs.items():
+        print(layer_name + '\t' + str(blob.data.shape))
+    
     mu_face = get_mean_image('mean_face_224.mat')
     mu_left_eye = get_mean_image('mean_left_224.mat')
     mu_right_eye = get_mean_image('mean_right_224.mat')
@@ -125,20 +135,15 @@ def main():
     print(mu_left_eye)
     print(mu_right_eye)
 
+    left_eye_transformer = create_image_transformer('image_left', mu_left_eye)
+    right_eye_transformer = create_image_transformer('image_right', mu_right_eye)
+    face_transformer = create_image_transformer('image_face', mu_face)
 
-    # model inference
-    proto_path="models/itracker_deploy.prototxt"
-    caffe_path="models/snapshots/itracker25x_iter_92000.caffemodel"
-    net = cv2.dnn.readNetFromCaffe(prototxt=proto_path, caffeModel=caffe_path)
+    # face grid transformer just passes through the data
+    face_grid_transformer = caffe.io.Transformer({'facegrid': net.blobs['facegrid'].data.shape})
 
-    net.setInput(img_left_batch, "image_left")
-    net.setInput(img_right_batch, "image_right")
-    net.setInput(img_face_batch, "image_face")
-    net.setInput(facegrid_batch, "facegrid")
-
-    output = net.forward()
-    print(output)
-    print(output.shape)
+    outputs = test_faces(img, faces, face_features)
+    print("The outputs:", outputs)
 
 if __name__ == "__main__":
     main()
