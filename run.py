@@ -108,7 +108,7 @@ def test_faces(img, faces, face_features):
 def main():
 
     # image loading and processing
-    img_left_blob, img_right_blob, img_face_blob = preprocess_img("anisha.png")
+    img_left_blob, img_right_blob, img_face_blob = preprocess_img("leo.png")
 
     img_left_batch, img_right_batch, img_face_batch, facegrid_batch = batchify(img_left_blob, img_right_blob, img_face_blob)
 
